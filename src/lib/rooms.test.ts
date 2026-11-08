@@ -102,4 +102,91 @@ describe("filterRooms", () => {
     filterRooms(ROOMS, 5, ["Projector", "Whiteboard"]);
     expect(ROOMS).toEqual(snapshot);
   });
+
+  // --- Task 04 targeted scenarios ---
+
+  it("capacity filtering: boundary — attendees exactly equal capacity matches", () => {
+    // conference-a has capacity 20
+    expect(filterRooms(ROOMS, 20, []).some((r) => r.id === "conference-a")).toBe(true);
+  });
+
+  it("capacity filtering: attendees one above capacity is excluded", () => {
+    expect(filterRooms(ROOMS, 21, []).some((r) => r.id === "conference-a")).toBe(false);
+  });
+
+  it("equipment filtering: single equipment narrows results correctly", () => {
+    const result = filterRooms(ROOMS, 1, ["Lab Bench"]);
+    expect(result.every((r) => r.equipment.includes("Lab Bench"))).toBe(true);
+    expect(result.some((r) => r.id === "eng-lab-104")).toBe(true);
+    expect(result.some((r) => r.id === "library-b")).toBe(false);
+  });
+
+  it("multiple equipment: requires ALL selected (conjunction, not disjunction)", () => {
+    const result = filterRooms(ROOMS, 1, ["Projector", "Video Conferencing"]);
+    // conference-a and seminar-301 both have Projector + Video Conferencing
+    const ids = result.map((r) => r.id);
+    expect(ids).toContain("conference-a");
+    expect(ids).toContain("seminar-301");
+    // library-b has Projector but NOT Video Conferencing
+    expect(ids).not.toContain("library-b");
+    // eng-lab-104 has Projector but NOT Video Conferencing
+    expect(ids).not.toContain("eng-lab-104");
+  });
+
+  it("multiple equipment: three-item requirement matches only rooms with all three", () => {
+    const result = filterRooms(ROOMS, 1, ["Projector", "Whiteboard", "Video Conferencing"]);
+    expect(result.every((r) => r.blocked === false)).toBe(true);
+    expect(result.some((r) => r.id === "conference-a")).toBe(true);
+    expect(result.length).toBe(1);
+  });
+
+  it("blocked rooms: a room that would match on capacity+equipment is excluded when blocked", () => {
+    // quiet-pod-2 has Whiteboard and capacity 2, but is blocked
+    const result = filterRooms(ROOMS, 1, ["Whiteboard"]);
+    expect(result.some((r) => r.id === "quiet-pod-2")).toBe(false);
+  });
+
+  it("empty results: blocked + capacity + equipment all produce empty", () => {
+    expect(filterRooms(ROOMS, 100, ["Projector"])).toEqual([]);
+    expect(filterRooms(ROOMS, 1, ["Nonexistent Equipment"])).toEqual([]);
+    // only rooms with Whiteboard are library-b, eng-lab-104, conference-a, quiet-pod-2
+    // requesting Lab Bench + Video Conferencing matches none
+    expect(filterRooms(ROOMS, 1, ["Lab Bench", "Video Conferencing"])).toEqual([]);
+  });
+
+  it("zero attendees with no equipment returns all non-blocked rooms", () => {
+    const result = filterRooms(ROOMS, 0, []);
+    expect(result.length).toBe(ROOMS.filter((r) => !r.blocked).length);
+    expect(result.every((r) => !r.blocked)).toBe(true);
+  });
+});
+
+// Verify each room's own bookings are used independently for overlap checks.
+// This ties room-specific booking data to AC5 overlap detection.
+describe("room-specific booking conflicts", () => {
+  it("library-b has booking [600,660] — a 610-650 window overlaps", () => {
+    const lib = ROOMS.find((r) => r.id === "library-b")!;
+    expect(lib.existing).toEqual([[600, 660]]);
+    // 610-650 is inside 600-660 → overlap
+    const overlaps = lib.existing.some(([s, e]) => 610 < e && s < 650);
+    expect(overlaps).toBe(true);
+  });
+
+  it("eng-lab-104 has bookings [540,600] and [780,840] — a 660-720 window does not overlap", () => {
+    const lab = ROOMS.find((r) => r.id === "eng-lab-104")!;
+    const overlaps = lab.existing.some(([s, e]) => 660 < e && s < 720);
+    expect(overlaps).toBe(false);
+  });
+
+  it("conference-a has booking [660,720] — touching at 660 is allowed, 610-660 does not overlap", () => {
+    const conf = ROOMS.find((r) => r.id === "conference-a")!;
+    const overlaps = conf.existing.some(([s, e]) => 610 < e && s < 660);
+    expect(overlaps).toBe(false);
+  });
+
+  it("different rooms have independent booking sets", () => {
+    const lib = ROOMS.find((r) => r.id === "library-b")!;
+    const conf = ROOMS.find((r) => r.id === "conference-a")!;
+    expect(lib.existing).not.toEqual(conf.existing);
+  });
 });
